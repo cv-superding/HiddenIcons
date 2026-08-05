@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HiddenIcons.Core", "src\HiddenIcons.Core\HiddenIcons.Core.csproj", "{6C7BA4C0-88B7-4CD6-9F4D-3A3D3F0A2D01}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HiddenIcons.App", "src\HiddenIcons.App\HiddenIcons.App.csproj", "{B9BA58FE-3A9D-4B7D-AE58-3E66C1E2BB02}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HiddenIcons.Service", "src\HiddenIcons.Service\HiddenIcons.Service.csproj", "{8B5E6AB4-EE88-4EC7-9DD2-95452D2F0B03}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6C7BA4C0-88B7-4CD6-9F4D-3A3D3F0A2D01}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6C7BA4C0-88B7-4CD6-9F4D-3A3D3F0A2D01}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6C7BA4C0-88B7-4CD6-9F4D-3A3D3F0A2D01}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6C7BA4C0-88B7-4CD6-9F4D-3A3D3F0A2D01}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B9BA58FE-3A9D-4B7D-AE58-3E66C1E2BB02}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B9BA58FE-3A9D-4B7D-AE58-3E66C1E2BB02}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B9BA58FE-3A9D-4B7D-AE58-3E66C1E2BB02}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B9BA58FE-3A9D-4B7D-AE58-3E66C1E2BB02}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8B5E6AB4-EE88-4EC7-9DD2-95452D2F0B03}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8B5E6AB4-EE88-4EC7-9DD2-95452D2F0B03}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8B5E6AB4-EE88-4EC7-9DD2-95452D2F0B03}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8B5E6AB4-EE88-4EC7-9DD2-95452D2F0B03}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

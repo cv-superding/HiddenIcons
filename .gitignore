@@ -1,0 +1,20 @@
+# Build output
+**/bin/
+**/obj/
+publish/
+release/
+
+# Local research checkout; not part of this project
+_research_mactype/
+
+# IDE and local files
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.nupkg
+
+# Local secrets and logs
+*.log
+.env
