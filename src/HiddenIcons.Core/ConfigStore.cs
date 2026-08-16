@@ -13,6 +13,9 @@ public sealed class ConfigStore
 
     public string FilePath { get; }
 
+    /// <summary>最近一次 Load 是否失败。调用方据此跳过自动保存/自启动清理，避免空配置覆盖真实配置。</summary>
+    public bool LastLoadFailed { get; private set; }
+
     public ConfigStore(string? filePath = null)
     {
         FilePath = filePath ?? Path.Combine(
@@ -24,12 +27,21 @@ public sealed class ConfigStore
     {
         try
         {
-            if (!File.Exists(FilePath)) return new AppConfig();
+            if (!File.Exists(FilePath))
+            {
+                LastLoadFailed = false;
+                return new AppConfig();
+            }
             var json = File.ReadAllText(FilePath);
-            return JsonSerializer.Deserialize<AppConfig>(json, Options) ?? new AppConfig();
+            var config = JsonSerializer.Deserialize<AppConfig>(json, Options) ?? new AppConfig();
+            LastLoadFailed = false;
+            return config;
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
+            // 读取失败绝不能把空配置当成真实状态返回出去用：
+            // UI 侧会因此跳过自动保存与 RunKey 清理，服务侧只是短暂看到空列表（无副作用）。
+            LastLoadFailed = true;
             return new AppConfig();
         }
     }

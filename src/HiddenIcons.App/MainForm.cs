@@ -14,6 +14,9 @@ public sealed class MainForm : Form
     private readonly Button _settings = new() { Text = "打开系统托盘设置" };
     private readonly TrayIconController _tray;
     private AppConfig _config;
+    // 配置读取失败时置 false：退出不再自动保存，避免空配置覆盖磁盘上的真实配置；
+    // 用户显式保存成功一次后恢复自动保存。
+    private bool _autoSaveOnClose = true;
 
     public MainForm(bool startHidden = false)
     {
@@ -23,8 +26,18 @@ public sealed class MainForm : Form
         _tray = new TrayIconController("Hidden Icons", (_, _) => ShowFromTray(), (_, _) => Application.Exit());
         _config = _store.Load();
         _source.DataSource = _config.Profiles;
-        try { StartupRegistration.Apply(_config.Profiles, Application.ExecutablePath); }
-        catch (Exception ex) { System.Diagnostics.Trace.WriteLine(ex); }
+        if (_store.LastLoadFailed)
+        {
+            _autoSaveOnClose = false;
+            MessageBox.Show(
+                "配置读取失败。为避免覆盖现有配置，关闭窗口时将不会自动保存；\n手动点击「保存配置」才会写入。",
+                "Hidden Icons", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        else
+        {
+            try { StartupRegistration.Apply(_config.Profiles, Application.ExecutablePath); }
+            catch (Exception ex) { System.Diagnostics.Trace.WriteLine(ex); }
+        }
         _tray.Visible = !_config.Profiles.Any(p => p.HideOwnTrayIcon);
         StartTrayProfiles();
 
@@ -34,7 +47,9 @@ public sealed class MainForm : Form
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _grid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Name", HeaderText = "名称", Width = 150 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "ExecutablePath", HeaderText = "程序", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Arguments", HeaderText = "参数", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
         _grid.Columns.Add(new DataGridViewComboBoxColumn { DataPropertyName = "Mode", HeaderText = "加载模式", DataSource = Enum.GetValues<LoadMode>(), Width = 110 });
+        _grid.Columns.Add(new DataGridViewCheckBoxColumn { DataPropertyName = "StartMinimized", HeaderText = "启动最小化", Width = 90 });
         _grid.Columns.Add(new DataGridViewCheckBoxColumn { DataPropertyName = "RestartOnExit", HeaderText = "崩溃重启", Width = 78 });
         _grid.Columns.Add(new DataGridViewCheckBoxColumn { DataPropertyName = "HideOwnTrayIcon", HeaderText = "隐藏管理器图标", Width = 110 });
         _grid.DataSource = _source;
@@ -48,7 +63,7 @@ public sealed class MainForm : Form
         _remove.Click += RemoveProfile;
         _save.Click += (_, _) => Save();
         _settings.Click += (_, _) => OpenTaskbarSettings();
-        FormClosing += (_, _) => Save();
+        FormClosing += (_, _) => { if (_autoSaveOnClose) Save(); };
         if (startHidden) Load += (_, _) => Hide();
     }
 
@@ -81,6 +96,7 @@ public sealed class MainForm : Form
             _store.Save(_config);
             StartupRegistration.Apply(_config.Profiles, Application.ExecutablePath);
             _tray.Visible = !_config.Profiles.Any(p => p.HideOwnTrayIcon);
+            _autoSaveOnClose = true; // 显式保存成功后，配置已是有效状态，恢复退出自动保存
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, "保存失败", MessageBoxButtons.OK, MessageBoxIcon.Error); }
     }
@@ -89,6 +105,9 @@ public sealed class MainForm : Form
     {
         foreach (var profile in _config.Profiles.Where(p => p.Mode == LoadMode.Tray && File.Exists(p.ExecutablePath)))
         {
+            // 目标已在运行（如用户手动开过、或上一个管理器实例启动的）就不再拉起，避免双开
+            var processName = Path.GetFileNameWithoutExtension(profile.ExecutablePath);
+            if (System.Diagnostics.Process.GetProcessesByName(processName).Length > 0) continue;
             try
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
