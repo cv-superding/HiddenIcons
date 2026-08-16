@@ -13,8 +13,8 @@ MacType 的公开源码（`snowie2000/mactype`）验证了这一点：它的 Ser
 ## 目录
 
 * `src/HiddenIcons.Core`：配置模型、原子 JSON 存储、HKCU Run 注册、服务端进程监督器、托盘图标控制器。
-* `src/HiddenIcons.App`：WinForms 用户界面。可添加 EXE、选择加载模式、保存配置、打开系统托盘设置。
-* `src/HiddenIcons.Service`：Worker Service。以 `LocalService` 运行，每 5 秒读取 `ProgramData\HiddenIcons\config.json`，只启动用户选择为 `Service` 的程序。
+* `src/HiddenIcons.App`：WinForms 用户界面。可添加 EXE、编辑参数/加载模式/启动最小化/崩溃重启、保存配置、打开系统托盘设置。单实例运行：托盘常驻时再次启动不会把 Tray 模式程序重复拉起。
+* `src/HiddenIcons.Service`：Worker Service。以 `LocalService` 运行，每 5 秒读取 `ProgramData\HiddenIcons\config.json`，只启动用户选择为 `Service` 的程序。进程退出后按该 profile 的「崩溃重启」决定是否重新拉起（未开启则本轮不再拉起）；同名进程已在运行时跳过，避免重复启动；服务停止时会结束由它启动的进程树。
 * `installer`：服务安装、卸载脚本。
 
 ## 加载模式
@@ -28,11 +28,16 @@ MacType 的公开源码（`snowie2000/mactype`）验证了这一点：它的 Ser
 
 服务模式不能把 Session 0 中的服务变成可交互的桌面程序。目标软件如果依赖托盘或桌面窗口，应使用 Tray/RunKey；不要把 GUI 软件强行改成服务。
 
+## 容错行为
+
+- `config.json` 读取失败时，UI 不会在退出时自动保存、也不会清理自启动项，避免用空配置覆盖磁盘上的真实配置；手动点击「保存配置」仍会写入。
+- RunKey 注册只看加载模式，不校验 EXE 当前是否存在（U 盘/网络盘路径暂时不可用时不误删自启动项）。
+
 ## 构建与安装
 
-需要 Visual Studio 2022 或 .NET 8 SDK（本执行环境只有 .NET Runtime，不能在此直接发布）。在管理员 PowerShell 中执行：
+需要 Visual Studio 2022 或 .NET 8 SDK。如果 NuGet 还原因访问 nuget.org 校验签名失败（错误 NU1301），可强制只用仓库 `NuGet.Config` 里配置的国内镜像，给 dotnet 命令追加参数：`-p:RestoreSources=https://nuget.azure.cn/v3/index.json`。
 
-当前已生成可运行的 framework-dependent x64 包：`release\HiddenIcons-win-x64.zip`。目标机器需要安装 .NET 8 Desktop Runtime；正式交付建议再补齐 Windows Desktop runtime pack 后改为 self-contained 发布。
+在管理员 PowerShell 中执行：
 
 ```powershell
 dotnet restore HiddenIcons.sln
@@ -56,7 +61,7 @@ Set-Location installer
 .\install-user.ps1
 ```
 
-它会安装到 `%LOCALAPPDATA%\HiddenIcons\app`，并写入当前用户的 RunKey；该模式不创建 Windows 服务。
+它会安装到 `%LOCALAPPDATA%\HiddenIcons\app`，并写入当前用户的 RunKey；该模式不创建 Windows 服务。HiddenIcons 只会在存在 Tray 模式 profile 时写入/更新 `HiddenIcons.Manager` 自启动项，不会自动删除它；卸载时请自行清理 RunKey 中的 `HiddenIcons.Manager` 值。
 
 安装脚本使用 `LocalService` 而不是 `LocalSystem`，并为 `ProgramData\HiddenIcons` 设置普通用户可修改权限，使托盘 UI 与服务共享配置。生产版应进一步把 ACL 收紧为安装时创建的专用组，并对配置中的路径做白名单校验。
 
