@@ -17,6 +17,8 @@ public sealed class MainForm : Form
     // 配置读取失败时置 false：退出不再自动保存，避免空配置覆盖磁盘上的真实配置；
     // 用户显式保存成功一次后恢复自动保存。
     private bool _autoSaveOnClose = true;
+    // Mica 是否生效（Win11 22H2+）；不生效时回退实色背景
+    private bool _micaActive;
 
     public MainForm(bool startHidden = false)
     {
@@ -54,7 +56,7 @@ public sealed class MainForm : Form
         _grid.Columns.Add(new DataGridViewCheckBoxColumn { DataPropertyName = "HideOwnTrayIcon", HeaderText = "隐藏管理器图标", Width = 110 });
         _grid.DataSource = _source;
 
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8), WrapContents = false };
+        var toolbar = new MicaFlowPanel { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8), WrapContents = false };
         toolbar.Controls.AddRange(new Control[] { _add, _remove, _save, _settings });
         Controls.Add(_grid);
         Controls.Add(toolbar);
@@ -65,6 +67,45 @@ public sealed class MainForm : Form
         _settings.Click += (_, _) => OpenTaskbarSettings();
         FormClosing += (_, _) => { if (_autoSaveOnClose) Save(); };
         if (startHidden) Load += (_, _) => Hide();
+
+        // ---- Win11 Fluent / Mica 换肤（仅渲染外观：不改动控件、布局与交互）----
+        SetStyle(ControlStyles.Opaque | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        Padding = new Padding(8);
+        HandleCreated += (_, _) => ApplyTheme();
+    }
+
+    /// <summary>按当前系统主题应用 Fluent 皮肤（窗口效果 + 控件配色 + 托盘菜单）。</summary>
+    private void ApplyTheme()
+    {
+        var light = FluentTheme.IsLightTheme();
+        _micaActive = FluentTheme.ApplyWindowChrome(Handle, light);
+        var p = FluentTheme.GetPalette(light);
+        if (!_micaActive) BackColor = p.Card; // 旧系统无 Mica：用实色近似
+        FluentTheme.StyleButton(_add, p);
+        FluentTheme.StyleButton(_remove, p);
+        FluentTheme.StyleButton(_save, p);
+        FluentTheme.StyleButton(_settings, p);
+        FluentTheme.StyleGrid(_grid, p);
+        _tray.ApplyTheme(light);
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        // Mica 生效时由 DWM 绘制云母背景，跳过 GDI 填充以免盖住材质
+        if (!_micaActive) base.OnPaintBackground(e);
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        const int WM_SETTINGCHANGE = 0x001A;
+        if (m.Msg == WM_SETTINGCHANGE)
+        {
+            var section = m.LParam == IntPtr.Zero
+                ? null
+                : System.Runtime.InteropServices.Marshal.PtrToStringUni(m.LParam);
+            if (section == "ImmersiveColorSet") ApplyTheme(); // 系统深浅模式切换时实时换肤
+        }
+        base.WndProc(ref m);
     }
 
     private void AddProfile(object? sender, EventArgs e)
