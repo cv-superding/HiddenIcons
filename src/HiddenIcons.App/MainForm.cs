@@ -57,6 +57,8 @@ public sealed class MainForm : Form
         _grid.Columns.Add(new DataGridViewCheckBoxColumn { DataPropertyName = "StartMinimized", HeaderText = "启动最小化", Width = 90 });
         _grid.Columns.Add(new DataGridViewCheckBoxColumn { DataPropertyName = "RestartOnExit", HeaderText = "崩溃重启", Width = 78 });
         _grid.Columns.Add(new DataGridViewCheckBoxColumn { DataPropertyName = "HideOwnTrayIcon", HeaderText = "隐藏管理器图标", Width = 110 });
+        // 行模板必须在绑定前设置，否则已创建的行高不足、文字贴底出格
+        FluentTheme.PrepareGrid(_grid);
         _grid.DataSource = _source;
 
         var toolbar = _toolbarHost;

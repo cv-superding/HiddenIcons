@@ -237,6 +237,17 @@ public static class FluentTheme
         RoundControl(button, 6);
     }
 
+    /// <summary>
+    /// 在数据绑定前调用的行模板预设：绑定后再改 RowTemplate 不会作用于已创建的行，
+    /// 会导致行高不足、文字贴底出格（125% DPI 下尤其明显）。
+    /// </summary>
+    public static void PrepareGrid(DataGridView grid)
+    {
+        grid.RowTemplate.Height = 40;
+        grid.DefaultCellStyle.Font = new Font("Segoe UI", 10F);
+        grid.DefaultCellStyle.Padding = new Padding(8, 0, 0, 0);
+    }
+
     /// <summary>表格：Fluent 卡片化外观（无边框、扁平表头、加大行高、强调色选区、水平发丝线）。</summary>
     public static void StyleGrid(DataGridView grid, Palette p)
     {
@@ -258,13 +269,18 @@ public static class FluentTheme
         grid.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 9.5F);
         grid.ColumnHeadersDefaultCellStyle.Padding = new Padding(8, 0, 0, 0);
 
-        grid.RowTemplate.Height = 36;
+        grid.RowTemplate.Height = 40;
         grid.DefaultCellStyle.BackColor = p.Card;
         grid.DefaultCellStyle.ForeColor = p.Text;
         grid.DefaultCellStyle.Font = new Font("Segoe UI", 10F);
         grid.DefaultCellStyle.Padding = new Padding(8, 0, 0, 0);
         grid.DefaultCellStyle.SelectionBackColor = p.Accent;
         grid.DefaultCellStyle.SelectionForeColor = p.AccentText;
+        // 归一化已存在的行高：绑定先于主题应用时，旧行仍是默认高度，文字会贴底出格
+        foreach (DataGridViewRow row in grid.Rows)
+        {
+            if (row.Height < 40) row.Height = 40;
+        }
 
         foreach (DataGridViewColumn column in grid.Columns)
         {
