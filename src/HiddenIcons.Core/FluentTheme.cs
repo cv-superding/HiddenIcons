@@ -35,19 +35,118 @@ public static class FluentTheme
         return true;
     }
 
-    /// <summary>
-    /// 应用窗口级 Win11 效果：圆角 + Mica 背景 + 标题栏深浅模式。
-    /// 返回 Mica 是否成功启用（旧系统返回 false，调用方应回退到实色背景）。
-    /// </summary>
-    public static bool ApplyWindowChrome(IntPtr hwnd, bool light)
+    /// <summary>系统「透明效果」是否开启；关闭时 Mica/亚克力都不会渲染，应回退实色。</summary>
+    public static bool IsTransparencyEnabled()
     {
-        if (hwnd == IntPtr.Zero) return false;
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            if (key?.GetValue("EnableTransparency") is int v) return v != 0;
+        }
+        catch { }
+        return true;
+    }
+
+    /// <summary>
+    /// 应用窗口级 Win11 效果：圆角 + 标题栏深浅模式。
+    /// 注：24H2+ 上 DWM 云母材质走 DirectComposition 通道，GDI 黑键配方已失效
+    /// （黑键区域只会显示纯黑），故云母效果改由 BuildMicaFill 模拟实现。
+    /// </summary>
+    public static void ApplyWindowChrome(IntPtr hwnd, bool light)
+    {
+        if (hwnd == IntPtr.Zero) return;
         int dark = light ? 0 : 1;
         DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
         int round = DWMWCP_ROUND;
         DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
-        int mica = DWMSBT_MAINWINDOW;
-        return DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref mica, sizeof(int)) == 0;
+    }
+
+    /* ---------------------- 模拟云母（壁纸模糊 + 主题罩层） ---------------------- */
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool SystemParametersInfo(int uiAction, int uiParam, System.Text.StringBuilder pvParam, int fuWinIni);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int index);
+
+    private const int SPI_GETDESKTOPWALLPAPER = 0x0073;
+    private const int SM_XVIRTUALSCREEN = 76;
+    private const int SM_YVIRTUALSCREEN = 77;
+    private const int SM_CXVIRTUALSCREEN = 78;
+    private const int SM_CYVIRTUALSCREEN = 79;
+
+    /// <summary>当前桌面壁纸文件路径（读不到返回 null）。</summary>
+    public static string? GetWallpaperPath()
+    {
+        try
+        {
+            var sb = new System.Text.StringBuilder(1024);
+            if (SystemParametersInfo(SPI_GETDESKTOPWALLPAPER, sb.Capacity, sb, 0)
+                && File.Exists(sb.ToString())) return sb.ToString();
+        }
+        catch { }
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Control Panel\Desktop");
+            if (key?.GetValue("WallPaper") is string s && File.Exists(s)) return s;
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>
+    /// 生成窗口区域的「模拟云母」底图：壁纸覆盖拉伸 → 按窗口在虚拟屏幕上的位置裁切 →
+    /// 强模糊（缩小再放大）→ 叠加主题色罩层（云母的实色占大头、壁纸若隐若现）。
+    /// 返回 null 表示壁纸不可用，调用方应回退实色背景。
+    /// </summary>
+    public static Bitmap? BuildMicaFill(bool light, Rectangle windowRect, Size outputSize)
+    {
+        if (outputSize.Width <= 0 || outputSize.Height <= 0) return null;
+        var path = GetWallpaperPath();
+        if (string.IsNullOrEmpty(path)) return null;
+        try
+        {
+            using var wall = new Bitmap(path);
+            int vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            int vw = Math.Max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
+            int vh = Math.Max(1, GetSystemMetrics(SM_CYVIRTUALSCREEN));
+
+            using var canvas = new Bitmap(vw, vh);
+            using (var g = Graphics.FromImage(canvas))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                double scale = Math.Max((double)vw / wall.Width, (double)vh / wall.Height);
+                int dw = Math.Max(1, (int)(wall.Width * scale));
+                int dh = Math.Max(1, (int)(wall.Height * scale));
+                g.DrawImage(wall, (vw - dw) / 2, (vh - dh) / 2, dw, dh);
+            }
+
+            int cx = Math.Max(0, Math.Min(windowRect.X - vx, vw - 1));
+            int cy = Math.Max(0, Math.Min(windowRect.Y - vy, vh - 1));
+            int cw = Math.Max(1, Math.Min(windowRect.Width, vw - cx));
+            int ch = Math.Max(1, Math.Min(windowRect.Height, vh - cy));
+            using var crop = canvas.Clone(new Rectangle(cx, cy, cw, ch), canvas.PixelFormat);
+
+            // 模糊：先缩到 1/14 再高质量放大，得到无锯齿的磨砂感
+            using var small = new Bitmap(crop, Math.Max(8, cw / 14), Math.Max(8, ch / 14));
+            var fill = new Bitmap(outputSize.Width, outputSize.Height);
+            using (var g2 = Graphics.FromImage(fill))
+            {
+                g2.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g2.DrawImage(small, 0, 0, fill.Width, fill.Height);
+                using var tint = new SolidBrush(Color.FromArgb(
+                    light ? 205 : 215,
+                    light ? Color.FromArgb(243, 243, 243) : Color.FromArgb(32, 32, 32)));
+                g2.FillRectangle(tint, 0, 0, fill.Width, fill.Height);
+            }
+            return fill;
+        }
+        catch
+        {
+            return null; // 壁纸解码失败等情况：回退实色
+        }
     }
 
     /* -------------------------------- 配色板 -------------------------------- */
@@ -106,21 +205,39 @@ public static class FluentTheme
 
     /* ------------------------------ 控件换肤 ------------------------------ */
 
-    /// <summary>按钮：扁平 Fluent 外观 + 圆角裁剪（保持原有尺寸、文本与点击行为）。</summary>
-    public static void StyleButton(Button button, Palette p)
+    /// <summary>
+    /// 按钮：扁平 Fluent 外观 + 圆角裁剪 + 现代尺寸（保持原有顺序、文本与点击行为）。
+    /// primary=true 时用强调色实底（主操作按钮）。
+    /// </summary>
+    public static void StyleButton(Button button, Palette p, bool primary = false)
     {
         button.FlatStyle = FlatStyle.Flat;
-        button.BackColor = p.Control;
-        button.ForeColor = p.Text;
-        button.FlatAppearance.BorderSize = 1;
-        button.FlatAppearance.BorderColor = p.ControlBorder;
-        button.FlatAppearance.MouseOverBackColor = p.ControlHover;
-        button.FlatAppearance.MouseDownBackColor = p.ControlPressed;
+        button.AutoSize = true;
+        button.Font = new Font("Segoe UI", 9.75F);
+        button.Padding = new Padding(16, 7, 16, 7);
+        button.Margin = new Padding(2, 8, 10, 8);
+        if (primary)
+        {
+            button.BackColor = p.Accent;
+            button.ForeColor = p.AccentText;
+            button.FlatAppearance.BorderColor = p.Accent;
+            button.FlatAppearance.MouseOverBackColor = ControlPaint.Light(p.Accent, 0.12F);
+            button.FlatAppearance.MouseDownBackColor = ControlPaint.Dark(p.Accent, 0.05F);
+        }
+        else
+        {
+            button.BackColor = p.Control;
+            button.ForeColor = p.Text;
+            button.FlatAppearance.BorderSize = 1;
+            button.FlatAppearance.BorderColor = p.ControlBorder;
+            button.FlatAppearance.MouseOverBackColor = p.ControlHover;
+            button.FlatAppearance.MouseDownBackColor = p.ControlPressed;
+        }
         button.SizeChanged += (_, _) => RoundControl(button, 6);
         RoundControl(button, 6);
     }
 
-    /// <summary>表格：Fluent 卡片化外观（隐藏边框、扁平表头、强调色选区、水平发丝线）。</summary>
+    /// <summary>表格：Fluent 卡片化外观（无边框、扁平表头、加大行高、强调色选区、水平发丝线）。</summary>
     public static void StyleGrid(DataGridView grid, Palette p)
     {
         grid.BorderStyle = BorderStyle.None;
@@ -128,18 +245,24 @@ public static class FluentTheme
         grid.BackgroundColor = p.Card;
         grid.GridColor = p.GridLine;
         grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
-        grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
-        grid.RowHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
+        grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
+        grid.RowHeadersVisible = false; // 去掉左侧经典灰色行头列
+        grid.RowHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
 
+        grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
+        grid.ColumnHeadersHeight = 40;
         grid.ColumnHeadersDefaultCellStyle.BackColor = p.Header;
         grid.ColumnHeadersDefaultCellStyle.ForeColor = p.SecondaryText;
         grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = p.Header;
         grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = p.SecondaryText;
-        grid.RowHeadersDefaultCellStyle.BackColor = p.Card;
-        grid.RowHeadersDefaultCellStyle.ForeColor = p.SecondaryText;
+        grid.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 9.5F);
+        grid.ColumnHeadersDefaultCellStyle.Padding = new Padding(8, 0, 0, 0);
 
+        grid.RowTemplate.Height = 36;
         grid.DefaultCellStyle.BackColor = p.Card;
         grid.DefaultCellStyle.ForeColor = p.Text;
+        grid.DefaultCellStyle.Font = new Font("Segoe UI", 10F);
+        grid.DefaultCellStyle.Padding = new Padding(8, 0, 0, 0);
         grid.DefaultCellStyle.SelectionBackColor = p.Accent;
         grid.DefaultCellStyle.SelectionForeColor = p.AccentText;
 
@@ -242,15 +365,13 @@ internal sealed class FluentColorTable : ProfessionalColorTable
 }
 
 /// <summary>
-/// 透底容器：跳过 GDI 背景填充，让 DWM 的 Mica 材质从工具栏区域透出。
-/// 布局行为与 FlowLayoutPanel 完全一致。
+/// 透底工具栏容器：背景透明（由父窗体绘制模拟云母底图）。布局行为与 FlowLayoutPanel 一致。
 /// </summary>
 public sealed class MicaFlowPanel : FlowLayoutPanel
 {
     public MicaFlowPanel()
     {
-        SetStyle(ControlStyles.Opaque | ControlStyles.AllPaintingInWmPaint, true);
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        BackColor = Color.Transparent;
     }
-
-    protected override void OnPaintBackground(PaintEventArgs e) { /* 由 DWM 绘制云母背景 */ }
 }

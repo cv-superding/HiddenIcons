@@ -17,13 +17,16 @@ public sealed class MainForm : Form
     // 配置读取失败时置 false：退出不再自动保存，避免空配置覆盖磁盘上的真实配置；
     // 用户显式保存成功一次后恢复自动保存。
     private bool _autoSaveOnClose = true;
-    // Mica 是否生效（Win11 22H2+）；不生效时回退实色背景
-    private bool _micaActive;
+    // 模拟云母底图（壁纸模糊+主题罩层）；null 表示壁纸不可用，回退实色
+    private Bitmap? _micaFill;
+    private bool _lightTheme = true;
+    private readonly System.Windows.Forms.Timer _micaDebounce = new() { Interval = 150 };
+    private readonly MicaFlowPanel _toolbarHost = new();
 
     public MainForm(bool startHidden = false)
     {
         Text = "Hidden Icons 管理器";
-        MinimumSize = new Size(760, 420);
+        MinimumSize = new Size(940, 520); // 7 列表格不被截断的最小宽度
         StartPosition = FormStartPosition.CenterScreen;
         _tray = new TrayIconController("Hidden Icons", (_, _) => ShowFromTray(), (_, _) => Application.Exit());
         _config = _store.Load();
@@ -56,7 +59,11 @@ public sealed class MainForm : Form
         _grid.Columns.Add(new DataGridViewCheckBoxColumn { DataPropertyName = "HideOwnTrayIcon", HeaderText = "隐藏管理器图标", Width = 110 });
         _grid.DataSource = _source;
 
-        var toolbar = new MicaFlowPanel { Dock = DockStyle.Top, Height = 44, Padding = new Padding(8), WrapContents = false };
+        var toolbar = _toolbarHost;
+        toolbar.Dock = DockStyle.Top;
+        toolbar.Height = 52;
+        toolbar.Padding = new Padding(8, 8, 8, 4);
+        toolbar.WrapContents = false;
         toolbar.Controls.AddRange(new Control[] { _add, _remove, _save, _settings });
         Controls.Add(_grid);
         Controls.Add(toolbar);
@@ -69,30 +76,72 @@ public sealed class MainForm : Form
         if (startHidden) Load += (_, _) => Hide();
 
         // ---- Win11 Fluent / Mica 换肤（仅渲染外观：不改动控件、布局与交互）----
-        SetStyle(ControlStyles.Opaque | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
         Padding = new Padding(8);
+        _micaDebounce.Tick += (_, _) => { _micaDebounce.Stop(); RegenMicaFill(); };
+        Move += (_, _) => _micaDebounce.Start();
+        ResizeEnd += (_, _) => _micaDebounce.Start();
         HandleCreated += (_, _) => ApplyTheme();
     }
 
-    /// <summary>按当前系统主题应用 Fluent 皮肤（窗口效果 + 控件配色 + 托盘菜单）。</summary>
+    /// <summary>按当前系统主题应用 Fluent 皮肤（窗口效果 + 控件配色 + 云母底图 + 托盘菜单）。</summary>
     private void ApplyTheme()
     {
-        var light = FluentTheme.IsLightTheme();
-        _micaActive = FluentTheme.ApplyWindowChrome(Handle, light);
-        var p = FluentTheme.GetPalette(light);
-        if (!_micaActive) BackColor = p.Card; // 旧系统无 Mica：用实色近似
-        FluentTheme.StyleButton(_add, p);
-        FluentTheme.StyleButton(_remove, p);
-        FluentTheme.StyleButton(_save, p);
-        FluentTheme.StyleButton(_settings, p);
-        FluentTheme.StyleGrid(_grid, p);
-        _tray.ApplyTheme(light);
+        _lightTheme = FluentTheme.IsLightTheme();
+        FluentTheme.ApplyWindowChrome(Handle, _lightTheme);
+        var p = FluentTheme.GetPalette(_lightTheme);
+        BackColor = p.Card;
+        ThemeLog($"light={_lightTheme} wallpaper={FluentTheme.GetWallpaperPath() ?? "none"} dpi={DeviceDpi} rows={_grid.RowCount}");
+        try
+        {
+            FluentTheme.StyleButton(_add, p);
+            FluentTheme.StyleButton(_remove, p);
+            FluentTheme.StyleButton(_save, p, primary: true);
+            FluentTheme.StyleButton(_settings, p);
+        }
+        catch (Exception ex) { ThemeLog("buttons FAILED: " + ex.Message); }
+        try { FluentTheme.StyleGrid(_grid, p); }
+        catch (Exception ex) { ThemeLog("grid FAILED: " + ex.Message); }
+        try { _tray.ApplyTheme(_lightTheme); }
+        catch (Exception ex) { ThemeLog("tray FAILED: " + ex.Message); }
+        RegenMicaFill();
+        ThemeLog("apply done");
+    }
+
+    /// <summary>重建模拟云母底图（壁纸不可用时回退实色卡片）。</summary>
+    private void RegenMicaFill()
+    {
+        var old = _micaFill;
+        try
+        {
+            _micaFill = FluentTheme.BuildMicaFill(
+                _lightTheme, new Rectangle(Location, Size), ClientSize);
+        }
+        catch (Exception ex) { ThemeLog("mica FAILED: " + ex.Message); }
+        if (_micaFill is not null) BackColor = _lightTheme ? Color.FromArgb(243, 243, 243) : Color.FromArgb(32, 32, 32);
+        Invalidate();
+        old?.Dispose();
     }
 
     protected override void OnPaintBackground(PaintEventArgs e)
     {
-        // Mica 生效时由 DWM 绘制云母背景，跳过 GDI 填充以免盖住材质
-        if (!_micaActive) base.OnPaintBackground(e);
+        if (_micaFill is not null)
+        {
+            e.Graphics.DrawImage(_micaFill, ClientRectangle);
+            return;
+        }
+        base.OnPaintBackground(e);
+    }
+
+    private static void ThemeLog(string msg)
+    {
+        try
+        {
+            System.IO.File.AppendAllText(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hiddenicons-theme.log"),
+                $"{DateTime.Now:HH:mm:ss.fff} {msg}\r\n");
+        }
+        catch { }
     }
 
     protected override void WndProc(ref Message m)
@@ -104,6 +153,7 @@ public sealed class MainForm : Form
                 ? null
                 : System.Runtime.InteropServices.Marshal.PtrToStringUni(m.LParam);
             if (section == "ImmersiveColorSet") ApplyTheme(); // 系统深浅模式切换时实时换肤
+            else if (section is null || section.Contains("Wall")) _micaDebounce.Start(); // 换壁纸后重磨砂
         }
         base.WndProc(ref m);
     }
@@ -192,7 +242,13 @@ public sealed class MainForm : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) _tray.Dispose();
+        if (disposing)
+        {
+            _tray.Dispose();
+            _micaDebounce.Stop();
+            _micaDebounce.Dispose();
+            _micaFill?.Dispose();
+        }
         base.Dispose(disposing);
     }
 }
