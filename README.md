@@ -13,9 +13,12 @@ MacType 的公开源码（`snowie2000/mactype`）验证了这一点：它的 Ser
 ## 目录
 
 * `src/HiddenIcons.Core`：配置模型、原子 JSON 存储、HKCU Run 注册、服务端进程监督器、托盘图标控制器。
-* `src/HiddenIcons.App`：WinForms 用户界面。可添加 EXE、编辑参数/加载模式/启动最小化/崩溃重启、保存配置、打开系统托盘设置。单实例运行：托盘常驻时再次启动不会把 Tray 模式程序重复拉起。
+* `src/HiddenIcons.App.WinUI`：**主 UI（WinUI 3）**。原生 Mica 云母背景、圆角窗口、Fluent Design 控件，深浅模式自动跟随系统。卡片式 profile 编辑（名称/路径/参数/加载模式/勾选项），动作与旧版一致（添加/删除/保存/打开系统托盘设置），配置文件与旧版完全兼容。托盘图标为纯 Win32 实现（Shell_NotifyIcon），原生菜单跟随系统主题。发布：`dotnet publish src/HiddenIcons.App.WinUI -c Release -r win-x64 --self-contained true`（需解包自包含部署，输出为文件夹）。
+* `src/HiddenIcons.App`：旧版 WinForms 界面（保留作回退），含 Fluent 换肤层（模拟云母）。
 * `src/HiddenIcons.Service`：Worker Service。以 `LocalService` 运行，每 5 秒读取 `ProgramData\HiddenIcons\config.json`，只启动用户选择为 `Service` 的程序。进程退出后按该 profile 的「崩溃重启」决定是否重新拉起（未开启则本轮不再拉起）；同名进程已在运行时跳过，避免重复启动；服务停止时会结束由它启动的进程树。
 * `installer`：服务安装、卸载脚本。
+
+已知构建注意点：WinUI 项目在 dotnet CLI 下 XAML 编译器 Pass2 拿不到本地程序集（WMC1509 警告），因此列表模板使用运行时 `{Binding}` 而非 `x:Bind`；`RuntimeIdentifier`/`SelfContained` 需保留在 csproj 中（WindowsAppSDKSelfContained 依赖），不要移到命令行。
 
 ## 加载模式
 
