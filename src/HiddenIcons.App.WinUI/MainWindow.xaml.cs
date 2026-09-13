@@ -84,6 +84,7 @@ public sealed partial class MainWindow : Window
 
         foreach (var profile in App.Config.Profiles) _vms.Add(new ProfileViewModel(profile));
         ProfileList.ItemsSource = _vms;
+        UpdateEmptyState();
         LoadFailBar.IsOpen = App.Store.LastLoadFailed;
 
         StartTrayProfiles();
@@ -134,6 +135,7 @@ public sealed partial class MainWindow : Window
         };
         App.Config.Profiles.Add(profile);
         _vms.Add(new ProfileViewModel(profile));
+        UpdateEmptyState();
     }
 
     private void RemoveProfile_Click(object sender, RoutedEventArgs e)
@@ -141,7 +143,11 @@ public sealed partial class MainWindow : Window
         if (ProfileList.SelectedItem is not ProfileViewModel vm) return;
         App.Config.Profiles.Remove(vm.Profile);
         _vms.Remove(vm);
+        UpdateEmptyState();
     }
+
+    private void UpdateEmptyState() =>
+        EmptyState.Visibility = _vms.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
     private void Save_Click(object sender, RoutedEventArgs e) => Save();
 
