@@ -8,6 +8,7 @@
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <ApplicationIcon>..\..\assets\app-logo.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="..\HiddenIcons.Core\HiddenIcons.Core.csproj" /></ItemGroup>
 </Project>

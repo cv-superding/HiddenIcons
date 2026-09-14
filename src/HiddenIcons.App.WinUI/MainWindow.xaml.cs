@@ -82,6 +82,10 @@ public sealed partial class MainWindow : Window
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1160, 720));
         AppWindow.Move(new Windows.Graphics.PointInt32(120, 100));
 
+        // 标题栏/任务栏用项目 logo（exe 文件图标由 csproj 的 ApplicationIcon 提供）
+        var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "app-logo.ico");
+        if (File.Exists(iconPath)) AppWindow.SetIcon(iconPath);
+
         foreach (var profile in App.Config.Profiles) _vms.Add(new ProfileViewModel(profile));
         ProfileList.ItemsSource = _vms;
         UpdateEmptyState();
